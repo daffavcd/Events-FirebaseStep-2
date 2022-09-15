@@ -84,7 +84,17 @@ class HomePage extends StatelessWidget {
             builder: (context, appState, _) => Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
+                if (appState.attendees >= 2)
+                  Paragraph('${appState.attendees} people going')
+                else if (appState.attendees == 1)
+                  const Paragraph('1 person going')
+                else
+                  const Paragraph('No one going'),
                 if (appState.loginState == ApplicationLoginState.loggedIn) ...[
+                  YesNoSelection(
+                    state: appState.attending,
+                    onSelection: (attending) => appState.attending = attending,
+                  ),
                   const Header('Discussion'),
                   GuestBook(
                     addMessage: (message) =>
@@ -113,6 +123,16 @@ class ApplicationState extends ChangeNotifier {
       options: DefaultFirebaseOptions.currentPlatform,
     );
 
+    // LISTENER ATTENDER
+    FirebaseFirestore.instance
+        .collection('attendees')
+        .where('attending', isEqualTo: true)
+        .snapshots()
+        .listen((snapshot) {
+      _attendees = snapshot.docs.length;
+      notifyListeners();
+    });
+
     FirebaseAuth.instance.userChanges().listen((user) {
       if (user != null) {
         _loginState = ApplicationLoginState.loggedIn;
@@ -131,6 +151,24 @@ class ApplicationState extends ChangeNotifier {
               ),
             );
           }
+
+          // GET ATTENDER
+          _attendingSubscription = FirebaseFirestore.instance
+              .collection('attendees')
+              .doc(user.uid)
+              .snapshots()
+              .listen((snapshot) {
+            if (snapshot.data() != null) {
+              if (snapshot.data()!['attending'] as bool) {
+                _attending = Attending.yes;
+              } else {
+                _attending = Attending.no;
+              }
+            } else {
+              _attending = Attending.unknown;
+            }
+            notifyListeners();
+          });
           notifyListeners();
         });
       } else {
@@ -139,6 +177,8 @@ class ApplicationState extends ChangeNotifier {
         // NULLIFYING MESSAGE
         _guestBookMessages = [];
         _guestBookSubscription?.cancel();
+        // NULLIFYING ATTENDER
+        _attendingSubscription?.cancel();
       }
       notifyListeners();
     });
@@ -154,6 +194,24 @@ class ApplicationState extends ChangeNotifier {
   StreamSubscription<QuerySnapshot>? _guestBookSubscription;
   List<GuestBookMessage> _guestBookMessages = [];
   List<GuestBookMessage> get guestBookMessages => _guestBookMessages;
+
+  // ATENDING PEOPLE SUBSCRIBE
+  int _attendees = 0;
+  int get attendees => _attendees;
+
+  Attending _attending = Attending.unknown;
+  StreamSubscription<DocumentSnapshot>? _attendingSubscription;
+  Attending get attending => _attending;
+  set attending(Attending attending) {
+    final userDoc = FirebaseFirestore.instance
+        .collection('attendees')
+        .doc(FirebaseAuth.instance.currentUser!.uid);
+    if (attending == Attending.yes) {
+      userDoc.set(<String, dynamic>{'attending': true});
+    } else {
+      userDoc.set(<String, dynamic>{'attending': false});
+    }
+  }
 
   void startLoginFlow() {
     _loginState = ApplicationLoginState.emailAddress;
@@ -232,6 +290,75 @@ class ApplicationState extends ChangeNotifier {
       'name': FirebaseAuth.instance.currentUser!.displayName,
       'userId': FirebaseAuth.instance.currentUser!.uid,
     });
+  }
+}
+
+// RADIO BUTTON DEFINING ATTENDING
+enum Attending { yes, no, unknown }
+
+// YES NO ATTENDING
+class YesNoSelection extends StatelessWidget {
+  const YesNoSelection({required this.state, required this.onSelection});
+  final Attending state;
+  final void Function(Attending selection) onSelection;
+
+  @override
+  Widget build(BuildContext context) {
+    switch (state) {
+      case Attending.yes:
+        return Padding(
+          padding: const EdgeInsets.all(8.0),
+          child: Row(
+            children: [
+              ElevatedButton(
+                style: ElevatedButton.styleFrom(elevation: 0),
+                onPressed: () => onSelection(Attending.yes),
+                child: const Text('YES'),
+              ),
+              const SizedBox(width: 8),
+              TextButton(
+                onPressed: () => onSelection(Attending.no),
+                child: const Text('NO'),
+              ),
+            ],
+          ),
+        );
+      case Attending.no:
+        return Padding(
+          padding: const EdgeInsets.all(8.0),
+          child: Row(
+            children: [
+              TextButton(
+                onPressed: () => onSelection(Attending.yes),
+                child: const Text('YES'),
+              ),
+              const SizedBox(width: 8),
+              ElevatedButton(
+                style: ElevatedButton.styleFrom(elevation: 0),
+                onPressed: () => onSelection(Attending.no),
+                child: const Text('NO'),
+              ),
+            ],
+          ),
+        );
+      default:
+        return Padding(
+          padding: const EdgeInsets.all(8.0),
+          child: Row(
+            children: [
+              StyledButton(
+                onPressed: () => onSelection(Attending.yes),
+                child: const Text('YES'),
+              ),
+              const SizedBox(width: 8),
+              StyledButton(
+                onPressed: () => onSelection(Attending.no),
+                child: const Text('NO'),
+              ),
+            ],
+          ),
+        );
+    }
   }
 }
 
